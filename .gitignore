@@ -1,0 +1,18 @@
+# Python / Sanal Ortam
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Geçici Önizleme Görselleri
+temp_images/
+
+# Vektör Veritabanı
+chroma_db/
+
+# IDE / Ortam Ayarları
+.vscode/
+.idea/
+.env
