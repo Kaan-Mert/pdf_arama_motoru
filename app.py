@@ -16,7 +16,6 @@ CHROMA_PERSIST_DIR = "chroma_db"
 TEMP_IMAGE_DIR = "temp_images"
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEVICE = "cpu"  # CPU veya CUDA kullanımı
-MAX_DISTANCE = 0.65  # Maksimum mesafe eşiği
 
 def tr_lower(text):
     return text.replace("I", "ı").replace("İ", "i").lower()
@@ -37,7 +36,7 @@ def get_tr_stem(word):
         "sinden", "sından", "sünden", "sundan", "leri", "ları", "lerin", "ların", "lere", "lara", "lerde", "larda",
         "lerden", "lardan", "deki", "daki", "teki", "taki",
         "den", "dan", "ten", "tan", "nin", "nın", "nün", "nun", "in", "ın", "ün", "un",
-        "ler", "lar", "lik", "lık", "lik", "luk", "de", "da", "te", "ta",
+        "ler", "lar", "lik", "lık", "luk", "de", "da", "te", "ta",
         "ye", "ya", "yi", "yı", "yü", "yu", "si", "sı", "sü", "su",
         "e", "a", "i", "ı", "ü", "u"
     ]
@@ -529,11 +528,6 @@ body, .gradio-container {
     min-height: 100vh;
 }
 
-/* Eski tema neon ışık kürelerini gizleme */
-.ambient-glow-wrapper {
-    display: none !important;
-}
-
 /* 2. Başlıklar & Tipografi (Dolma Kalem Laciverti & Kurşun Kalem Grisi) */
 h1, h2, h3, .panel-title, .hero-title {
     font-family: 'Playfair Display', Georgia, serif !important;
@@ -923,13 +917,8 @@ CLIENT_SYNC_JS = """
 }
 """
 
-# --- AMBIENT & HERO BAŞLIK HTML ---
+# --- HERO BAŞLIK HTML ---
 AMBIENT_BG_HTML = """
-<div class="ambient-glow-wrapper">
-    <div class="glow-orb orb-cyan"></div>
-    <div class="glow-orb orb-purple"></div>
-    <div class="glow-orb orb-pink"></div>
-</div>
 <div class="hero-header">
     <div class="hero-pill">
         <span>📜</span> Semantik Doküman Kütüphanesi
