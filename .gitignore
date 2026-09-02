@@ -16,3 +16,4 @@ chroma_db/
 .vscode/
 .idea/
 .env
+bm25_index.pkl
