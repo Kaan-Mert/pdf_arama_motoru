@@ -17,3 +17,6 @@ chroma_db/
 .idea/
 .env
 bm25_index.pkl
+chroma_db_phase1_backup/
+bm25_index_phase1_backup.pkl
+chroma_db_bench/
