@@ -141,10 +141,10 @@ body.dark {
 .gradio-container > .main.app,
 .gradio-container > div.main,
 .gradio-container > .wrap > .main {
-  width: min(calc(100vw - 48px), 1440px) !important;
-  max-width: 1440px !important;
+  width: min(96vw, 1920px) !important;
+  max-width: 1920px !important;
   margin-inline: auto !important;
-  padding: 20px 0 !important;
+  padding: clamp(12px, 1.5vw, 24px) 0 !important;
   box-sizing: border-box !important;
 }
 
@@ -419,7 +419,7 @@ button#index-button:hover,
 .main-grid-row {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
-  gap: 24px !important;
+  gap: clamp(16px, 1.8vw, 28px) !important;
   margin-top: 0 !important;
   min-width: 0 !important;
   max-width: 100% !important;
@@ -458,7 +458,7 @@ button#index-button:hover,
   min-width: 0 !important;
   max-width: 100% !important;
   height: 100% !important;
-  max-height: 78vh !important;
+  max-height: clamp(540px, 80vh, 900px) !important;
   overflow-y: auto !important;
 }
 
@@ -688,7 +688,7 @@ button#search-button[disabled] {
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: 48px 20px !important;
+  padding: clamp(24px, 4vh, 48px) 20px !important;
   text-align: center !important;
   border: 1px dashed var(--color-border-hover) !important;
   border-radius: var(--radius-lg) !important;
@@ -697,7 +697,7 @@ button#search-button[disabled] {
   max-width: 100% !important;
   gap: 8px !important;
   flex: 1 1 auto !important;
-  height: 100% !important;
+  min-height: 180px !important;
 }
 
 .empty-icon {
@@ -958,6 +958,97 @@ button#search-button[disabled] {
   font-weight: 600 !important;
 }
 
+/* References Collapsible Section (<details>) */
+.references-accordion {
+  margin-top: 14px !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-lg) !important;
+  background: #FFFFFF !important;
+  overflow: hidden !important;
+  transition: border-color 0.2s var(--ease-stitch), box-shadow 0.2s var(--ease-stitch) !important;
+}
+
+.references-accordion:hover {
+  border-color: var(--color-border-hover) !important;
+  box-shadow: var(--shadow-level-1) !important;
+}
+
+.references-accordion[open] {
+  border-color: var(--color-border-hover) !important;
+}
+
+.references-summary {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 12px 16px !important;
+  background: var(--color-surface-subtle) !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #334155 !important;
+  list-style: none !important;
+  outline: none !important;
+  transition: background-color 0.15s ease, color 0.15s ease !important;
+}
+
+.references-summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.references-summary:hover {
+  background: #E2E8F0 !important;
+  color: #0F172A !important;
+}
+
+.references-summary:focus-visible {
+  outline: 2px solid var(--app-accent-red) !important;
+  outline-offset: -2px !important;
+}
+
+.references-summary-content {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.references-summary-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #86198F !important;
+}
+
+.references-summary-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #1E293B !important;
+  letter-spacing: -0.01em !important;
+}
+
+.references-summary-chevron {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #64748B !important;
+  transition: transform 0.25s var(--ease-stitch) !important;
+}
+
+.references-accordion[open] .references-summary-chevron {
+  transform: rotate(180deg) !important;
+  color: #0F172A !important;
+}
+
+.references-cards-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  padding: 14px 14px !important;
+  background: #FAFBFD !important;
+  border-top: 1px solid var(--color-border) !important;
+}
+
 /* ==========================================================================
    11. Document Preview Frame
    ========================================================================== */
@@ -1072,7 +1163,7 @@ button#search-button[disabled] {
 .preview-viewport {
   position: relative !important;
   width: 100% !important;
-  height: 520px !important;
+  height: clamp(480px, 60vh, 680px) !important;
   overflow: hidden !important;
   background: #FFFFFF !important;
   border-radius: var(--radius-md) !important;
@@ -1333,22 +1424,9 @@ body.modal-open {
 }
 
 /* ==========================================================================
-   14. Fluid Desktop Behavior (1440px Ceiling)
+   14. Fluid Desktop Behavior
    ========================================================================== */
-@media (min-width: 1440px) {
-  .preview-viewport {
-    height: 560px !important;
-  }
-}
-
-@media (min-width: 1920px) {
-  .preview-viewport {
-    height: 600px !important;
-  }
-  .scrollable-panel {
-    max-height: 80vh !important;
-  }
-}
+/* Fluid geometry handled by clamp() without ad-hoc breakpoints */
 
 /* ==========================================================================
    15. Accessibility & Reduced Motion

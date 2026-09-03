@@ -691,10 +691,21 @@ def search(query):
     print(f"Top Final Results: {len(results)}")
     print("===========================\n")
 
-    cards_html = []
+    normal_items = []
+    ref_items = []
+    for original_rank, (res, distance, match_type, extra_terms) in enumerate(results, 1):
+        if res.metadata.get("is_reference"):
+            ref_items.append((original_rank, res, distance, match_type, extra_terms))
+        else:
+            normal_items.append((original_rank, res, distance, match_type, extra_terms))
+
+    display_items = [(item, False) for item in normal_items] + [(item, True) for item in ref_items]
+
+    normal_cards_html = []
+    ref_cards_html = []
     initial_preview_html = EMPTY_PREVIEW_HTML
 
-    for i, (res, distance, match_type, extra_terms) in enumerate(results, 1):
+    for display_idx, ((original_rank, res, distance, match_type, extra_terms), is_ref_group) in enumerate(display_items):
         file_path = res.metadata.get('source', '')
         file_name = os.path.basename(file_path)
         page_num = res.metadata.get('page', 1)
@@ -724,7 +735,7 @@ def search(query):
 
         esc_file_name = html.escape(file_name, quote=True)
         esc_full_url = html.escape(full_url, quote=True)
-        is_first = (i == 1)
+        is_first = (display_idx == 0)
         active_class = " active-result-card" if is_first else ""
 
         # Reference status & uncalibrated logit score formatting (calibrated accurately)
@@ -733,7 +744,7 @@ def search(query):
         score_badge_html = f'<span class="badge-score">Skor: {distance:.4f}</span>' if distance is not None else ''
 
         card = f"""
-        <div class="result-card cursor-pointer{active_class}" id="card-result-{i-1}" data-index="{i-1}"
+        <div class="result-card cursor-pointer{active_class}" id="card-result-{display_idx}" data-index="{display_idx}"
              data-full-url="{esc_full_url}"
              data-file-name="{esc_file_name}"
              data-page-num="{page_num}"
@@ -745,7 +756,7 @@ def search(query):
              title="Sağ tarafta bu sayfayı odaklamak için tıklayın">
             <div class="result-header">
                 <div class="result-primary-row">
-                    <span class="badge-rank">#{i}</span>
+                    <span class="badge-rank">#{original_rank}</span>
                     <span class="badge-file" title="{esc_file_name}">📄 {esc_file_name}</span>
                     <span class="badge-page">Sayfa {page_num}</span>
                 </div>
@@ -767,7 +778,10 @@ def search(query):
             </div>
         </div>
         """
-        cards_html.append(card)
+        if is_ref_group:
+            ref_cards_html.append(card)
+        else:
+            normal_cards_html.append(card)
 
         if is_first and full_url:
             initial_preview_html = f"""
@@ -800,9 +814,32 @@ def search(query):
             </div>
             """
 
+    details_html = ""
+    if ref_cards_html:
+        open_attr = " open" if len(normal_cards_html) == 0 else ""
+        details_html = f"""
+        <details class="references-accordion" id="references-accordion"{open_attr}>
+            <summary class="references-summary" id="references-summary">
+                <div class="references-summary-content">
+                    <span class="references-summary-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                    </span>
+                    <span class="references-summary-title">Kaynakça Kesitleri ({len(ref_cards_html)})</span>
+                </div>
+                <span class="references-summary-chevron">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+            </summary>
+            <div class="references-cards-container">
+                {''.join(ref_cards_html)}
+            </div>
+        </details>
+        """
+
     full_html = f"""
     <div class="results-container">
-        {''.join(cards_html)}
+        {''.join(normal_cards_html)}
+        {details_html}
     </div>
     """
     return full_html, initial_preview_html

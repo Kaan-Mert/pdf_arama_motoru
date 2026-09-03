@@ -4,6 +4,8 @@ import html
 import fitz
 import sys
 import os
+import numpy as np
+from langchain_core.documents import Document
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -232,6 +234,117 @@ class TestFocusedPreview(unittest.TestCase):
             self.assertIn("⭐ Hybrid Match", cards_html)
             self.assertNotIn("Benzerlik: %", cards_html)
             self.assertIn('class="badge-score"', cards_html)
+        finally:
+            app.vector_store = orig_vs
+            app.bm25_index = orig_bm25
+            app.bm25_documents = orig_docs
+            app.cross_encoder = orig_ce
+
+    def test_reference_grouping_mixed_results_closed_details(self):
+        """Karışık içerik/kaynakça sonuçlarında normal kartlar görünür, kaynakça kartları kapalı <details> içindedir ve ilk aktif kart normal sonuçtur."""
+        orig_vs = app.vector_store
+        orig_bm25 = app.bm25_index
+        orig_docs = app.bm25_documents
+        orig_ce = app.cross_encoder
+
+        try:
+            test_docs = []
+            for i in range(1, 11):
+                doc = Document(page_content=f"Normal içerik metni {i}", metadata={"source": "doc1.pdf", "page": i, "is_reference": False})
+                test_docs.append(doc)
+            for i in range(11, 16):
+                doc = Document(page_content=f"Kaynakça referans metni {i}", metadata={"source": "doc1.pdf", "page": i, "is_reference": True})
+                test_docs.append(doc)
+
+            mock_vs = MagicMock()
+            mock_vs.similarity_search.return_value = test_docs
+
+            mock_bm25 = MagicMock()
+            mock_bm25.get_scores.return_value = np.array([float(100 - i) for i in range(len(test_docs))])
+
+            mock_ce = MagicMock()
+            mock_ce.predict.side_effect = lambda pairs: [float(100 - idx) for idx in range(len(pairs))]
+
+            app.vector_store = mock_vs
+            app.bm25_index = mock_bm25
+            app.bm25_documents = test_docs
+            app.cross_encoder = mock_ce
+
+            with patch('app.render_highlighted_pdf_page', return_value=('dummy.png', (0.1, 0.1, 0.5, 0.5), 20)):
+                cards_html, preview_html = app.search("arama")
+
+            # 1. details kapalı olmalı (<details class="references-accordion" id="references-accordion">)
+            self.assertIn('<details class="references-accordion" id="references-accordion">', cards_html)
+            self.assertNotIn('<details class="references-accordion" id="references-accordion" open>', cards_html)
+
+            # 2. Başlık 5 kaynakça kesiti belirtmeli
+            self.assertIn("Kaynakça Kesitleri (5)", cards_html)
+
+            # 3. Toplam kart sayısı 15 olmalı
+            self.assertEqual(cards_html.count('class="result-card'), 15)
+
+            # 4. İlk aktif kart normal içerik olmalı (data-index="0" ve active-result-card)
+            self.assertIn('data-index="0"', cards_html)
+            self.assertIn('id="card-result-0"', cards_html)
+            details_pos = cards_html.find('<details')
+            first_card_pos = cards_html.find('id="card-result-0"')
+            self.assertTrue(first_card_pos < details_pos)
+            self.assertIn('active-result-card', cards_html[:details_pos])
+
+            # 5. Kaynakça kartları details içinde olmalı ve sequential index taşımalı
+            ref_container_pos = cards_html.find('class="references-cards-container"')
+            self.assertTrue(ref_container_pos > details_pos)
+            self.assertIn('data-index="10"', cards_html[ref_container_pos:])
+            self.assertIn('data-index="14"', cards_html[ref_container_pos:])
+        finally:
+            app.vector_store = orig_vs
+            app.bm25_index = orig_bm25
+            app.bm25_documents = orig_docs
+            app.cross_encoder = orig_ce
+
+    def test_reference_grouping_all_references_open_details(self):
+        """Yalnızca kaynakça sonucu bulunduğunda <details open> gelir ve ilk kartın PDF senkronizasyonu çalışır."""
+        orig_vs = app.vector_store
+        orig_bm25 = app.bm25_index
+        orig_docs = app.bm25_documents
+        orig_ce = app.cross_encoder
+
+        try:
+            test_docs = []
+            for i in range(1, 16):
+                doc = Document(page_content=f"Sadece kaynakça referansı {i}", metadata={"source": "doc1.pdf", "page": i, "is_reference": True})
+                test_docs.append(doc)
+
+            mock_vs = MagicMock()
+            mock_vs.similarity_search.return_value = test_docs
+
+            mock_bm25 = MagicMock()
+            mock_bm25.get_scores.return_value = np.array([float(100 - i) for i in range(len(test_docs))])
+
+            mock_ce = MagicMock()
+            mock_ce.predict.side_effect = lambda pairs: [float(100 - idx) for idx in range(len(pairs))]
+
+            app.vector_store = mock_vs
+            app.bm25_index = mock_bm25
+            app.bm25_documents = test_docs
+            app.cross_encoder = mock_ce
+
+            with patch('app.render_highlighted_pdf_page', return_value=('ref_preview.png', (0.2, 0.2, 0.4, 0.4), 25)):
+                cards_html, preview_html = app.search("referans")
+
+            # 1. details açık olmalı (<details class="references-accordion" id="references-accordion" open>)
+            self.assertIn('<details class="references-accordion" id="references-accordion" open>', cards_html)
+            self.assertIn("Kaynakça Kesitleri (15)", cards_html)
+
+            # 2. İlk kart (data-index="0") aktif olmalı ve details içinde bulunmalı
+            self.assertIn('data-index="0"', cards_html)
+            self.assertIn('id="card-result-0"', cards_html)
+            self.assertIn('active-result-card', cards_html)
+
+            # 3. PDF önizleme senkronizasyonu ilk kaynakça kartından üretilmiş olmalı
+            self.assertIn('ref_preview.png', preview_html)
+            self.assertIn('Sayfa 1 / 25', preview_html)
+            self.assertIn('focused-preview-card', preview_html)
         finally:
             app.vector_store = orig_vs
             app.bm25_index = orig_bm25
