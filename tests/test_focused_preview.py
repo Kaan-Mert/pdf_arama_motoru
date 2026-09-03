@@ -226,9 +226,12 @@ class TestFocusedPreview(unittest.TestCase):
             card_count = cards_html.count('class="result-card')
             self.assertEqual(card_count, 15)
 
-            # 3. is_reference rozetinin korunduğu
+            # 3. is_reference rozetinin korunduğu ve ayrı rozet olarak üretildiği
             self.assertIn("📚 Kaynakça", cards_html)
+            self.assertIn('class="badge-reference"', cards_html)
             self.assertIn("⭐ Hybrid Match", cards_html)
+            self.assertNotIn("Benzerlik: %", cards_html)
+            self.assertIn('class="badge-score"', cards_html)
         finally:
             app.vector_store = orig_vs
             app.bm25_index = orig_bm25

@@ -392,9 +392,19 @@
     // --- 6. SINGLETON MUTATION OBSERVER ON SEARCH RESULTS ---
     function initSearchObserver() {
         const resultsEl = document.getElementById('search-results');
+        const countBadge = document.getElementById('results-count');
         if (!resultsEl) return;
 
+        function updateResultCount() {
+            const cards = resultsEl.querySelectorAll('.result-card');
+            const count = cards.length;
+            if (countBadge) {
+                countBadge.textContent = `${count} SONUÇ`;
+            }
+        }
+
         const observer = new MutationObserver(() => {
+            updateResultCount();
             const firstCard = resultsEl.querySelector('.result-card');
             if (firstCard) {
                 // Ensure first card is selected and focused preview is applied
@@ -405,6 +415,79 @@
         });
 
         observer.observe(resultsEl, { childList: true, subtree: true });
+        updateResultCount();
+    }
+
+    // --- 7. UNIFIED ACCORDION HEADER ENHANCEMENT ---
+    function initAccordionHeader() {
+        function enhance() {
+            const acc = document.getElementById('library-accordion');
+            if (!acc) return false;
+            const labelWrap = acc.querySelector('.label-wrap');
+            if (!labelWrap) return false;
+
+            // Check if brandContainer already exists
+            let brandContainer = labelWrap.querySelector('.accordion-brand-container');
+            if (!brandContainer) {
+                brandContainer = document.createElement('div');
+                brandContainer.className = 'accordion-brand-container';
+                brandContainer.innerHTML = `
+                    <div class="accordion-folder-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
+                        </svg>
+                    </div>
+                    <div class="accordion-title-group">
+                        <span class="accordion-main-title">Belge Kütüphanesi</span>
+                        <span class="accordion-app-subtitle">Akıllı PDF Arama & Görsel Keşif Platformu</span>
+                    </div>
+                `;
+                labelWrap.insertBefore(brandContainer, labelWrap.firstChild);
+            }
+
+            // Hide only the default title text span, preserve .icon / svg chevron
+            const spans = labelWrap.querySelectorAll('span');
+            spans.forEach(s => {
+                if (
+                    !s.closest('.accordion-brand-container') &&
+                    !s.classList.contains('icon') &&
+                    !s.querySelector('svg')
+                ) {
+                    s.style.display = 'none';
+                }
+            });
+
+            // Ensure the chevron .icon is visible and positioned at the far right
+            let iconEl = labelWrap.querySelector('.icon');
+            if (iconEl) {
+                iconEl.style.display = 'inline-flex';
+                iconEl.style.visibility = 'visible';
+                iconEl.style.opacity = '1';
+                if (!iconEl.querySelector('svg')) {
+                    iconEl.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+                }
+            } else {
+                iconEl = document.createElement('span');
+                iconEl.className = 'icon';
+                iconEl.style.display = 'inline-flex';
+                iconEl.style.visibility = 'visible';
+                iconEl.style.opacity = '1';
+                iconEl.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+                labelWrap.appendChild(iconEl);
+            }
+
+            return true;
+        }
+
+        if (!enhance()) {
+            let attempts = 0;
+            const timer = setInterval(() => {
+                attempts++;
+                if (enhance() || attempts > 20) {
+                    clearInterval(timer);
+                }
+            }, 100);
+        }
     }
 
     // Initialize when DOM is ready
@@ -412,11 +495,13 @@
         document.addEventListener('DOMContentLoaded', () => {
             initModal();
             initSearchObserver();
+            initAccordionHeader();
             window.selectPdfResult(0);
         });
     } else {
         initModal();
         initSearchObserver();
+        initAccordionHeader();
         window.selectPdfResult(0);
     }
 }

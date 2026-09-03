@@ -601,9 +601,10 @@ def search(query):
         empty_html = """
         <div class="empty-state">
             <div class="empty-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             </div>
-            <p class="empty-text">Lütfen aramak istediğiniz konuyu veya soruyu yukarıdaki kutuya yazın.</p>
+            <p class="empty-title">Lütfen aramak istediğiniz konuyu yazın</p>
+            <p class="empty-desc">Doğal dilde soru veya anahtar kelime girerek arama yapabilirsiniz.</p>
         </div>
         """
         return empty_html, EMPTY_PREVIEW_HTML
@@ -612,9 +613,10 @@ def search(query):
         empty_html = """
         <div class="empty-state">
             <div class="empty-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
             </div>
-            <p class="empty-text">Önce sol taraftaki 'Verileri İndeksle' butonuna basarak belgeleri indekslemelisiniz.</p>
+            <p class="empty-title">Belgeler henüz indekslenmedi</p>
+            <p class="empty-desc">Önce 'Verileri İndeksle' butonuna basarak belgeleri indekslemelisiniz.</p>
         </div>
         """
         return empty_html, EMPTY_PREVIEW_HTML
@@ -657,9 +659,10 @@ def search(query):
         empty_html = """
         <div class="empty-state">
             <div class="empty-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             </div>
-            <p class="empty-text">Aranan kelime veya kavram belgelerde bulunamadı.</p>
+            <p class="empty-title">Sonuç bulunamadı</p>
+            <p class="empty-desc">Aranan kelime veya kavram belgelerde yer almıyor olabilir. Farklı bir ifade deneyin.</p>
         </div>
         """
         return empty_html, EMPTY_PREVIEW_HTML
@@ -671,9 +674,6 @@ def search(query):
 
         for doc, score in zip(unique_candidates, scores):
             match_type = "⭐ Hybrid Match"
-            if doc.metadata.get("is_reference"):
-                match_type += " • 📚 Kaynakça"
-
             pseudo_distance = float(score)
             extra_terms = set(query_tokens)
             scored_results.append((score, doc, pseudo_distance, match_type, extra_terms))
@@ -727,6 +727,11 @@ def search(query):
         is_first = (i == 1)
         active_class = " active-result-card" if is_first else ""
 
+        # Reference status & uncalibrated logit score formatting (calibrated accurately)
+        has_reference = bool(res.metadata.get("is_reference"))
+        ref_badge_html = '<span class="badge-reference">📚 Kaynakça</span>' if has_reference else ''
+        score_badge_html = f'<span class="badge-score">Skor: {distance:.4f}</span>' if distance is not None else ''
+
         card = f"""
         <div class="result-card cursor-pointer{active_class}" id="card-result-{i-1}" data-index="{i-1}"
              data-full-url="{esc_full_url}"
@@ -739,13 +744,21 @@ def search(query):
              data-focus-h="{fh}"
              title="Sağ tarafta bu sayfayı odaklamak için tıklayın">
             <div class="result-header">
-                <div class="badges-group">
-                    <span class="badge-index">#{i}</span>
-                    <span class="badge-file">📄 {esc_file_name}</span>
+                <div class="result-primary-row">
+                    <span class="badge-rank">#{i}</span>
+                    <span class="badge-file" title="{esc_file_name}">📄 {esc_file_name}</span>
                     <span class="badge-page">Sayfa {page_num}</span>
-                    <span class="badge-page" style="background: rgba(167, 243, 208, 0.8); color: #065f46; border-color: rgba(167, 243, 208, 1);">{match_type}</span>
-                    <span class="badge-page" style="background: rgba(147, 197, 253, 0.8);">Skor: {distance:.4f}</span>
-                    <button type="button" class="btn-jump-page">👁️ Sayfayı Gör</button>
+                </div>
+                <div class="result-secondary-row">
+                    <div class="badges-meta">
+                        <span class="badge-match">{html.escape(match_type)}</span>
+                        {ref_badge_html}
+                        {score_badge_html}
+                    </div>
+                    <button type="button" class="btn-jump-page">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <span>Sayfayı Gör</span>
+                    </button>
                 </div>
             </div>
             <div class="result-snippet">
@@ -759,23 +772,29 @@ def search(query):
         if is_first and full_url:
             initial_preview_html = f"""
             <div class="focused-preview-card" id="focused-preview-card">
-                <div class="preview-header">
-                    <div class="preview-title-group">
-                        <span class="preview-file-badge">📄 <span id="preview-file-name">{esc_file_name}</span></span>
+                <div class="preview-toolbar">
+                    <div class="preview-toolbar-meta">
+                        <span class="preview-file-badge" title="{esc_file_name}">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            <span id="preview-file-name">{esc_file_name}</span>
+                        </span>
                         <span class="preview-page-badge" id="preview-page-badge">Sayfa {page_num} / {total_pages}</span>
                     </div>
                     <button type="button" class="btn-open-full" id="btn-open-modal" onclick="window.openPdfModal && window.openPdfModal()" title="Tam sayfayı büyük modalda görüntüle">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                         <span>Tam Sayfayı Aç</span>
                     </button>
                 </div>
-                <div class="preview-viewport-container" id="preview-viewport-trigger" onclick="window.openPdfModal && window.openPdfModal()" title="Tam sayfayı açmak için tıklayın">
+                <div class="document-viewer-frame" id="preview-viewport-trigger" onclick="window.openPdfModal && window.openPdfModal()" title="Tam sayfayı açmak için tıklayın">
                     <div class="preview-viewport" id="preview-viewport">
                         <img id="preview-viewport-img" src="{esc_full_url}" alt="Focused PDF Preview" draggable="false"
                              data-focus-x="{fx}" data-focus-y="{fy}" data-focus-w="{fw}" data-focus-h="{fh}" />
                     </div>
                     <div class="preview-viewport-overlay">
-                        <span class="preview-hint">Tam sayfayı açmak için tıklayın</span>
+                        <span class="preview-hint">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                            <span>Büyütmek için tıklayın</span>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -791,9 +810,10 @@ def search(query):
 EMPTY_PREVIEW_HTML = """
 <div class="empty-state">
     <div class="empty-icon">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
     </div>
-    <p class="empty-text">Arama sonuçlarından bir kesit seçtiğinizde ilgili sayfanın odaklanmış önizlemesi burada gösterilir.</p>
+    <p class="empty-title">Önizleme için bir kesit seçin</p>
+    <p class="empty-desc">Arama sonuçlarından bir kart seçtiğinizde ilgili sayfanın odaklanmış önizlemesi burada gösterilir.</p>
 </div>
 """
 
@@ -838,45 +858,33 @@ BASE_DIR = Path(__file__).resolve().parent
 PHASE3_CSS = (BASE_DIR / "static" / "phase3.css").read_text(encoding="utf-8")
 PHASE3_JS = (BASE_DIR / "static" / "phase3.js").read_text(encoding="utf-8")
 
-TOP_APP_BAR_HTML = """
-<div id="top-app-bar">
-    <div class="top-bar-inner">
-        <div class="brand-section">
-            <div class="brand-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
-            </div>
-            <div>
-                <h1 class="brand-title">Akıllı PDF Arama & Görsel Keşif</h1>
-                <p class="brand-subtitle">Anlamsal arama ve orijinal sayfa önizleme platformu</p>
-            </div>
-        </div>
-    </div>
-</div>
-"""
-
-FOOTER_HTML = """
-<div id="app-footer">
-    <p>© 2026 Akıllı PDF Arama Platformu</p>
-</div>
-"""
-
 # --- GRADIO ARAYÜZÜ ---
 with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
-    # 1. Üst Başlık Çubuğu
-    gr.HTML(TOP_APP_BAR_HTML)
-
-    # 2. Belge Kütüphanesi Akordiyonu (Varsayılan olarak kapalı)
+    # 1. Bütünleşik Belge Kütüphanesi ve Operasyon Kabuğu
     with gr.Accordion("Belge Kütüphanesi", open=False, elem_id="library-accordion"):
-        with gr.Row():
-            index_btn = gr.Button("Belgeleri İndeksle", elem_id="index-button", scale=1)
-            index_output = gr.Textbox(
-                label="İndeksleme Durumu",
-                value=init_message,
-                interactive=False,
-                elem_id="index-status",
-                scale=3,
-                lines=1
-            )
+        with gr.Row(elem_id="accordion-content-row"):
+            with gr.Column(scale=1, elem_id="index-action-col"):
+                gr.HTML("""
+                <div class="index-action-panel">
+                    <p class="index-action-title">Doküman Veri Havuzu</p>
+                    <p class="index-action-desc">Klasördeki tüm PDF dokümanları OCR, semantik vektörleştirme ve BM25 hibrit arama motoruna senkronize edilir.</p>
+                </div>
+                """)
+                index_btn = gr.Button("Belgeleri İndeksle", elem_id="index-button")
+            with gr.Column(scale=1, elem_id="index-status-col"):
+                gr.HTML("""
+                <div class="index-status-header">
+                    <span class="index-status-label">İNDEKSLEME DURUMU</span>
+                </div>
+                """)
+                index_output = gr.Textbox(
+                    label="",
+                    value=init_message,
+                    interactive=False,
+                    elem_id="index-status",
+                    lines=3,
+                    container=False
+                )
 
     # 3. İki Sütunlu Ana Alan
     with gr.Row(elem_classes=["main-grid-row"]):
@@ -906,15 +914,17 @@ with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                     <span>Metin Kesitleri</span>
                 </div>
+                <span class="results-count-badge" id="results-count">0 SONUÇ</span>
             </div>
             """)
             search_output = gr.HTML(
                 value="""
                 <div class="empty-state">
                     <div class="empty-icon">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     </div>
-                    <p class="empty-text">Aramak istediğiniz konuyu veya soruyu yukarıdaki kutucuğa yazıp <strong>'Ara'</strong> butonuna basın.</p>
+                    <p class="empty-title">Aramak istediğiniz konuyu veya soruyu yazın</p>
+                    <p class="empty-desc">PDF belgeleriniz içindeki ilgili pasajlar ve alıntılar burada listelenecektir.</p>
                 </div>
                 """,
                 elem_id="search-results"
@@ -937,9 +947,6 @@ with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
 
     # 4. Kök Modal Görüntüleyici (Blocks Kökünde, Paneller Dışında)
     gr.HTML(MODAL_VIEWER_HTML)
-
-    # 5. Alt Bilgi (Footer)
-    gr.HTML(FOOTER_HTML)
 
     # Olay Bağlantıları (Event Listeners)
     index_btn.click(fn=index_documents, inputs=[], outputs=[index_output])
