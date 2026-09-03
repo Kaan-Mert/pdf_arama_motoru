@@ -13,6 +13,8 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
 import pickle
+import urllib.parse
+import time
 from rank_bm25 import BM25Okapi
 from TurkishStemmer import TurkishStemmer
 from sentence_transformers import CrossEncoder
@@ -414,11 +416,104 @@ def index_documents():
 
     return f"✅ Başarılı! Eklenen: {added}, Güncellenen: {updated}, Silinen: {deleted}, Atlanan: {skipped}, Hatalı: {errors}."
 
-def render_highlighted_pdf_page(pdf_path, page_num, query_words):
-    """Verilen PDF'in ilgili sayfasını alır, sorgudaki kelimeleri sarıyla vurgular ve yüksek kaliteli resme çevirir."""
+def cleanup_temp_images(max_age_hours=24, max_files=200):
+    """Geçici önizleme görsellerini best-effort temizler; Windows kilitlerinde hata vermez."""
+    if not os.path.exists(TEMP_IMAGE_DIR):
+        return
+    try:
+        now = time.time()
+        files = []
+        for fn in os.listdir(TEMP_IMAGE_DIR):
+            if fn.endswith((".png", ".jpg")):
+                fp = os.path.join(TEMP_IMAGE_DIR, fn)
+                try:
+                    stat = os.stat(fp)
+                    files.append((fp, stat.st_mtime))
+                except Exception:
+                    pass
+
+        # 1. 24 saatten eski dosyaları sil (her dosya izole try-except)
+        for fp, mtime in files:
+            if now - mtime > max_age_hours * 3600:
+                try:
+                    os.remove(fp)
+                except Exception:
+                    pass
+
+        # 2. Dosya sayısı limiti aşıyorsa en eskileri temizle
+        remaining = [f for f in files if os.path.exists(f[0])]
+        if len(remaining) > max_files:
+            remaining.sort(key=lambda x: x[1])
+            excess = len(remaining) - max_files
+            for fp, _ in remaining[:excess]:
+                try:
+                    os.remove(fp)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"Geçici dosya temizleme uyarısı: {e}")
+
+def calculate_focus_box(page_w, page_h, query, query_words, rects_map):
+    """
+    Hedef eşleşmenin sayfa içindeki odak kutusunu hesaplar ve normalize (0..1) koordinatlar döner.
+    Öncelik: Tam sorgu eşleşmesi -> En anlamlı sorgu terimi -> Güvenli üst/merkez fallback.
+    """
+    target_rect = None
+
+    # 1. Tam sorgu eşleşmesi
+    if query and query in rects_map and rects_map[query]:
+        target_rect = rects_map[query][0]
+
+    # 2. Anlamlı kelime eşleşmesi
+    if target_rect is None:
+        stopwords = {"ve", "ile", "de", "da", "bir", "bu", "şu", "için", "olan", "olarak", "gibi", "daha", "en"}
+        meaningful_words = [w for w in query_words if len(w) >= 3 and tr_lower(w) not in stopwords]
+        meaningful_words.sort(key=lambda x: len(x), reverse=True)
+        for w in meaningful_words:
+            if w in rects_map and rects_map[w]:
+                target_rect = rects_map[w][0]
+                break
+
+    # Hedef en az %60 genişlik, %28 yükseklik bağlam payı
+    min_w = page_w * 0.60
+    min_h = page_h * 0.28
+
+    if target_rect is None:
+        # Fallback: sayfanın üst-orta bölümü
+        cx = page_w * 0.5
+        cy = page_h * 0.25
+        bw = min_w
+        bh = min_h
+    else:
+        cx = (target_rect.x0 + target_rect.x1) / 2.0
+        cy = (target_rect.y0 + target_rect.y1) / 2.0
+        bw = max(target_rect.width + 80.0, min_w)
+        bh = max(target_rect.height + 100.0, min_h)
+
+    bw = min(bw, page_w)
+    bh = min(bh, page_h)
+
+    # page.rect sınırları içine sıkıştırma (clamped)
+    x0 = max(0.0, min(cx - bw / 2.0, page_w - bw))
+    y0 = max(0.0, min(cy - bh / 2.0, page_h - bh))
+
+    return (
+        round(x0 / page_w, 4),
+        round(y0 / page_h, 4),
+        round(bw / page_w, 4),
+        round(bh / page_h, 4)
+    )
+
+def render_highlighted_pdf_page(pdf_path, page_num, query_words, query=""):
+    """
+    Verilen PDF'in ilgili sayfasını tek seferlik 2.0x rasterize eder,
+    odak kutusunu hesaplar ve dosya tanıtıcısının kapatılmasını garanti eder.
+    Mükerrer highlight annotation'larını koordinat toleransıyla engeller.
+    """
     if not os.path.exists(pdf_path):
         return None
 
+    doc = None
     try:
         doc = fitz.open(pdf_path)
         fitz_page_num = int(page_num) - 1
@@ -427,30 +522,74 @@ def render_highlighted_pdf_page(pdf_path, page_num, query_words):
             return None
 
         page = doc.load_page(fitz_page_num)
+        rects_map = {}
+        annotated_rects = []
+        q_normalized = tr_lower(query.strip()) if query else ""
 
-        # Metin vurgulama (Highlighting)
+        # 1. Tam ifade araması (Öncelikli)
+        if query and query.strip():
+            q_clean = query.strip()
+            exact_rects = page.search_for(q_clean)
+            if exact_rects:
+                rects_map[q_clean] = list(exact_rects)
+                for rect in exact_rects:
+                    annot = page.add_highlight_annot(rect)
+                    annot.set_colors(stroke=[1, 1, 0])
+                    annot.update()
+                    annotated_rects.append(rect)
+
+        # 2. Bireysel kelime aramaları (Mükerrerleri atla)
         for word in query_words:
-            rects = page.search_for(word)
-            for rect in rects:
-                annot = page.add_highlight_annot(rect)
-                annot.set_colors(stroke=[1, 1, 0]) # Sarı renk
-                annot.update()
+            if not word:
+                continue
+            clean_word = word.strip()
+            if not clean_word:
+                continue
+            if q_normalized and tr_lower(clean_word) == q_normalized:
+                continue
 
-        # Net ve keskin önizleme için 2x zoom matrisi
+            w_rects = page.search_for(clean_word)
+            if w_rects:
+                if clean_word not in rects_map:
+                    rects_map[clean_word] = []
+                for rect in w_rects:
+                    # Aynı x0, y0, x1 ve y1 koordinatlarına tolerans (0.01 pt) içinde sahip rect'i tekrar annotate etme
+                    is_dup = any(
+                        abs(rect.x0 - ar.x0) < 0.01 and
+                        abs(rect.y0 - ar.y0) < 0.01 and
+                        abs(rect.x1 - ar.x1) < 0.01 and
+                        abs(rect.y1 - ar.y1) < 0.01
+                        for ar in annotated_rects
+                    )
+                    if not is_dup:
+                        annot = page.add_highlight_annot(rect)
+                        annot.set_colors(stroke=[1, 1, 0])
+                        annot.update()
+                        annotated_rects.append(rect)
+                    rects_map[clean_word].append(rect)
+
+        # Odak koordinatlarını hesapla (normalize 0..1)
+        focus_box = calculate_focus_box(page.rect.width, page.rect.height, query, query_words, rects_map)
+
+        # Net ve keskin önizleme için tek seferlik 2x zoom matrisi
         zoom_matrix = fitz.Matrix(2.0, 2.0)
         pix = page.get_pixmap(matrix=zoom_matrix)
 
-        safe_name = os.path.basename(pdf_path).replace(".pdf", "")
-        img_filename = f"{safe_name}_page_{page_num}.png"
+        norm_src = os.path.normpath(pdf_path).replace('\\', '/')
+        src_hash = hashlib.sha256(norm_src.encode('utf-8')).hexdigest()[:10]
+        img_filename = f"page_{src_hash}_p{page_num}.png"
         img_path = os.path.join(TEMP_IMAGE_DIR, img_filename)
 
         pix.save(img_path)
-        doc.close()
+        total_pages = len(doc)
 
-        return img_path
+        return img_path, focus_box, total_pages
     except Exception as e:
         print(f"Resim oluşturma hatası: {e}")
         return None
+    finally:
+        if doc is not None:
+            doc.close()
 
 def search(query):
     """Doğal dil sorgusunu semantik arama ile işler, Neumorphic Glass kartları ve galeri görsellerini üretir."""
@@ -461,20 +600,24 @@ def search(query):
     if not query:
         empty_html = """
         <div class="empty-state">
-            <div class="empty-icon">🔍</div>
+            <div class="empty-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </div>
             <p class="empty-text">Lütfen aramak istediğiniz konuyu veya soruyu yukarıdaki kutuya yazın.</p>
         </div>
         """
-        return empty_html, []
+        return empty_html, EMPTY_PREVIEW_HTML
 
     if vector_store is None or bm25_index is None or cross_encoder is None:
         empty_html = """
         <div class="empty-state">
-            <div class="empty-icon">📂</div>
+            <div class="empty-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            </div>
             <p class="empty-text">Önce sol taraftaki 'Verileri İndeksle' butonuna basarak belgeleri indekslemelisiniz.</p>
         </div>
         """
-        return empty_html, []
+        return empty_html, EMPTY_PREVIEW_HTML
 
     query_lower = tr_lower(query)
     query_tokens = preprocess_text(query)
@@ -510,6 +653,17 @@ def search(query):
 
     unique_candidates = list(candidate_map.values())
 
+    if not unique_candidates:
+        empty_html = """
+        <div class="empty-state">
+            <div class="empty-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </div>
+            <p class="empty-text">Aranan kelime veya kavram belgelerde bulunamadı.</p>
+        </div>
+        """
+        return empty_html, EMPTY_PREVIEW_HTML
+
     scored_results = []
     if unique_candidates:
         pairs = [(query_lower, tr_lower(doc.page_content)) for doc in unique_candidates]
@@ -520,10 +674,7 @@ def search(query):
             if doc.metadata.get("is_reference"):
                 match_type += " • 📚 Kaynakça"
 
-            # Distance yerine sigmoid benzeri veya direkt skoru kullanıyoruz.
             pseudo_distance = float(score)
-
-            # query tokens for highlighting
             extra_terms = set(query_tokens)
             scored_results.append((score, doc, pseudo_distance, match_type, extra_terms))
 
@@ -540,17 +691,8 @@ def search(query):
     print(f"Top Final Results: {len(results)}")
     print("===========================\n")
 
-    if not results:
-        empty_html = """
-        <div class="empty-state">
-            <div class="empty-icon">📭</div>
-            <p class="empty-text">Aranan kelime veya kavram belgelerde bulunamadı.</p>
-        </div>
-        """
-        return empty_html, []
-
     cards_html = []
-    gallery_images = []
+    initial_preview_html = EMPTY_PREVIEW_HTML
 
     for i, (res, distance, match_type, extra_terms) in enumerate(results, 1):
         file_path = res.metadata.get('source', '')
@@ -562,23 +704,48 @@ def search(query):
         raw_terms = [query] + list(extra_terms) + [w for w in re.split(r'\s+', query) if len(w) > 2]
         highlight_terms = sorted(set([t.strip() for t in raw_terms if t and t.strip()]), key=lambda x: len(x), reverse=True)
 
-
         for term in highlight_terms:
             pattern = re.compile(rf'(?<![<a-zA-ZçğıöşüÇĞIŞÖÜ])({re.escape(term)})(?![>a-zA-ZçğıöşüÇĞIŞÖÜ])', re.IGNORECASE)
             if not pattern.search(snippet):
                 pattern = re.compile(rf'({re.escape(term)})', re.IGNORECASE)
             snippet = pattern.sub(r'<mark style="background-color: #fef08a; color: #0f172a; padding: 2px 4px; border-radius: 3px; font-weight: bold;">\1</mark>', snippet)
 
+        full_url = ""
+        fx, fy, fw, fh = 0.0, 0.0, 1.0, 1.0
+        total_pages = page_num
+
+        if file_path:
+            render_res = render_highlighted_pdf_page(file_path, page_num, highlight_terms, query)
+            if render_res:
+                img_path, focus_coords, total_pages = render_res
+                fx, fy, fw, fh = focus_coords
+                qhash = hashlib.md5(query.encode('utf-8')).hexdigest()[:8]
+                full_url = f"/gradio_api/file={urllib.parse.quote(os.path.abspath(img_path))}?v={qhash}"
+
+        esc_file_name = html.escape(file_name, quote=True)
+        esc_full_url = html.escape(full_url, quote=True)
+        is_first = (i == 1)
+        active_class = " active-result-card" if is_first else ""
+
         card = f"""
-        <div class="result-card cursor-pointer" id="card-result-{i-1}" data-index="{i-1}" onclick="window.selectPdfResult && window.selectPdfResult({i-1})" title="Sağ tarafta bu sayfayı açmak için tıklayın">
+        <div class="result-card cursor-pointer{active_class}" id="card-result-{i-1}" data-index="{i-1}"
+             data-full-url="{esc_full_url}"
+             data-file-name="{esc_file_name}"
+             data-page-num="{page_num}"
+             data-total-pages="{total_pages}"
+             data-focus-x="{fx}"
+             data-focus-y="{fy}"
+             data-focus-w="{fw}"
+             data-focus-h="{fh}"
+             title="Sağ tarafta bu sayfayı odaklamak için tıklayın">
             <div class="result-header">
                 <div class="badges-group">
                     <span class="badge-index">#{i}</span>
-                    <span class="badge-file">📄 {file_name}</span>
+                    <span class="badge-file">📄 {esc_file_name}</span>
                     <span class="badge-page">Sayfa {page_num}</span>
                     <span class="badge-page" style="background: rgba(167, 243, 208, 0.8); color: #065f46; border-color: rgba(167, 243, 208, 1);">{match_type}</span>
                     <span class="badge-page" style="background: rgba(147, 197, 253, 0.8);">Skor: {distance:.4f}</span>
-                    <button type="button" class="btn-jump-page" onclick="window.selectPdfResult && window.selectPdfResult({i-1}); event.stopPropagation();">👁️ Sayfayı Gör</button>
+                    <button type="button" class="btn-jump-page">👁️ Sayfayı Gör</button>
                 </div>
             </div>
             <div class="result-snippet">
@@ -589,21 +756,82 @@ def search(query):
         """
         cards_html.append(card)
 
-        if file_path:
-            img_path = render_highlighted_pdf_page(file_path, page_num, highlight_terms)
-            if img_path:
-                caption = f"Sonuç #{i} • {file_name} (Sayfa {page_num} - Skor: {distance:.4f})"
-                gallery_images.append((img_path, caption))
+        if is_first and full_url:
+            initial_preview_html = f"""
+            <div class="focused-preview-card" id="focused-preview-card">
+                <div class="preview-header">
+                    <div class="preview-title-group">
+                        <span class="preview-file-badge">📄 <span id="preview-file-name">{esc_file_name}</span></span>
+                        <span class="preview-page-badge" id="preview-page-badge">Sayfa {page_num} / {total_pages}</span>
+                    </div>
+                    <button type="button" class="btn-open-full" id="btn-open-modal" onclick="window.openPdfModal && window.openPdfModal()" title="Tam sayfayı büyük modalda görüntüle">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                        <span>Tam Sayfayı Aç</span>
+                    </button>
+                </div>
+                <div class="preview-viewport-container" id="preview-viewport-trigger" onclick="window.openPdfModal && window.openPdfModal()" title="Tam sayfayı açmak için tıklayın">
+                    <div class="preview-viewport" id="preview-viewport">
+                        <img id="preview-viewport-img" src="{esc_full_url}" alt="Focused PDF Preview" draggable="false"
+                             data-focus-x="{fx}" data-focus-y="{fy}" data-focus-w="{fw}" data-focus-h="{fh}" />
+                    </div>
+                    <div class="preview-viewport-overlay">
+                        <span class="preview-hint">Tam sayfayı açmak için tıklayın</span>
+                    </div>
+                </div>
+            </div>
+            """
 
     full_html = f"""
     <div class="results-container">
         {''.join(cards_html)}
-        <img src="data:image/svg+xml;utf8,<svg></svg>" style="display:none;" onerror="setTimeout(function(){{ if(window.selectPdfResult) window.selectPdfResult(0); }}, 150);" />
     </div>
     """
-    return full_html, gallery_images
+    return full_html, initial_preview_html
 
-# Başlangıç durumu
+EMPTY_PREVIEW_HTML = """
+<div class="empty-state">
+    <div class="empty-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+    </div>
+    <p class="empty-text">Arama sonuçlarından bir kesit seçtiğinizde ilgili sayfanın odaklanmış önizlemesi burada gösterilir.</p>
+</div>
+"""
+
+MODAL_VIEWER_HTML = """
+<div id="pdf-viewer-modal" class="pdf-modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1">
+    <div class="pdf-modal-backdrop" id="modal-backdrop"></div>
+    <div class="pdf-modal-container">
+        <div class="pdf-modal-header">
+            <div class="modal-meta">
+                <span class="modal-filename" id="modal-filename">Belge.pdf</span>
+                <span class="modal-pagebadge" id="modal-pagebadge">Sayfa 1 / 1</span>
+            </div>
+            <div class="modal-controls">
+                <button type="button" class="modal-btn-tool" id="modal-zoom-out" title="Uzaklaştır (−)" aria-label="Uzaklaştır">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <button type="button" class="modal-btn-tool modal-zoom-reset" id="modal-zoom-reset" title="Sıfırla (%100)" aria-label="Sıfırla">
+                    <span id="modal-zoom-label">100%</span>
+                </button>
+                <button type="button" class="modal-btn-tool" id="modal-zoom-in" title="Yakınlaştır (+)" aria-label="Yakınlaştır">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <button type="button" class="modal-btn-tool modal-btn-close" id="modal-close" title="Kapat (Esc)" aria-label="Kapat">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+        </div>
+        <div class="pdf-modal-body" id="modal-viewport">
+            <div class="pdf-modal-canvas" id="modal-canvas">
+                <img id="modal-full-image" src="data:image/svg+xml;utf8,<svg></svg>" alt="Full PDF Page" draggable="false" />
+            </div>
+        </div>
+    </div>
+</div>
+"""
+
+# Başlangıç durumu ve geçici dosya temizliği
+cleanup_temp_images()
 init_message = init_vector_store()
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -657,7 +885,7 @@ with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
             gr.HTML("""
             <div class="panel-header">
                 <div class="panel-header-title">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     <span>Akıllı Semantik Arama</span>
                 </div>
             </div>
@@ -692,7 +920,7 @@ with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
                 elem_id="search-results"
             )
 
-        # Sağ Panel: Orijinal Sayfa Önizlemeleri
+        # Sağ Panel: Orijinal Sayfa Önizlemeleri (Odaklanmış PDF Önizleme)
         with gr.Column(scale=1, elem_id="preview-panel", elem_classes=["saas-card", "scrollable-panel"]):
             gr.HTML("""
             <div class="panel-header">
@@ -702,26 +930,30 @@ with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
                 </div>
             </div>
             """)
-            gallery_output = gr.Gallery(
-                label="Orijinal PDF Sayfaları",
-                show_label=False,
-                elem_id="pdf-preview-gallery",
-                columns=[1],
-                rows=[1],
-                object_fit="contain",
-                height="auto"
+            preview_output = gr.HTML(
+                value=EMPTY_PREVIEW_HTML,
+                elem_id="pdf-preview-container"
             )
 
-    # 4. Alt Bilgi (Footer)
+    # 4. Kök Modal Görüntüleyici (Blocks Kökünde, Paneller Dışında)
+    gr.HTML(MODAL_VIEWER_HTML)
+
+    # 5. Alt Bilgi (Footer)
     gr.HTML(FOOTER_HTML)
 
     # Olay Bağlantıları (Event Listeners)
     index_btn.click(fn=index_documents, inputs=[], outputs=[index_output])
-    search_btn.click(fn=search, inputs=[search_input], outputs=[search_output, gallery_output])
-    search_input.submit(fn=search, inputs=[search_input], outputs=[search_output, gallery_output])
+    search_btn.click(fn=search, inputs=[search_input], outputs=[search_output, preview_output])
+    search_input.submit(fn=search, inputs=[search_input], outputs=[search_output, preview_output])
 
     # İstemci tarafı senkronizasyon betiği - Tek noktadan
     demo.load(js=PHASE3_JS)
 
 if __name__ == "__main__":
-    demo.launch(server_name="127.0.0.1", inbrowser=True, css=PHASE3_CSS, theme=gr.themes.Base())
+    demo.launch(
+        server_name="127.0.0.1",
+        inbrowser=True,
+        css=PHASE3_CSS,
+        theme=gr.themes.Base(),
+        allowed_paths=[TEMP_IMAGE_DIR]
+    )
