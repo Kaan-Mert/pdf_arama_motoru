@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import glob
 import re
 import html
@@ -605,487 +606,122 @@ def search(query):
 # Başlangıç durumu
 init_message = init_vector_store()
 
-# --- VINTAGE KAĞIT, KURŞUN KALEM & DOLMA KALEM (GLASSMORPHISM) CUSTOM CSS ---
-CUSTOM_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600;1,700&display=swap');
+BASE_DIR = Path(__file__).resolve().parent
+PHASE3_CSS = (BASE_DIR / "static" / "phase3.css").read_text(encoding="utf-8")
+PHASE3_JS = (BASE_DIR / "static" / "phase3.js").read_text(encoding="utf-8")
 
-/* 1. Saf CSS Çizgili Defter Yaprağı / Eski Kağıt Arka Planı */
-body, .gradio-container {
-    font-family: 'Lora', Georgia, serif !important;
-    background-color: #f4f1e8 !important;
-    background-image: repeating-linear-gradient(
-        transparent,
-        transparent 31px,
-        rgba(110, 115, 120, 0.16) 31px,
-        rgba(110, 115, 120, 0.16) 32px
-    ) !important;
-    background-size: 100% 32px !important;
-    color: #3b3b3b !important;
-    position: relative;
-    min-height: 100vh;
-}
-
-/* 2. Başlıklar & Tipografi (Dolma Kalem Laciverti & Kurşun Kalem Grisi) */
-h1, h2, h3, .panel-title, .hero-title {
-    font-family: 'Playfair Display', Georgia, serif !important;
-    color: #2c3e50 !important;
-    font-weight: 700 !important;
-    letter-spacing: -0.01em !important;
-    border-bottom: 1px solid rgba(44, 62, 80, 0.25) !important;
-    padding-bottom: 6px !important;
-    margin-bottom: 14px !important;
-}
-
-.hero-header {
-    text-align: center;
-    margin: 15px auto 35px auto;
-    position: relative;
-    z-index: 1;
-}
-
-.hero-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 18px;
-    background: rgba(255, 253, 248, 0.85) !important;
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(44, 62, 80, 0.35) !important;
-    border-radius: 9999px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #2c3e50 !important;
-    box-shadow: 2px 3px 8px rgba(60, 50, 40, 0.05);
-    margin-bottom: 12px;
-}
-
-.hero-title {
-    font-size: 2.3rem !important;
-    margin: 0 !important;
-    border-bottom: none !important;
-    padding-bottom: 0 !important;
-    background: none !important;
-    -webkit-text-fill-color: initial !important;
-}
-
-.hero-subtitle {
-    font-family: 'Lora', Georgia, serif !important;
-    font-size: 1.05rem;
-    color: #5c5c5c !important;
-    font-style: italic;
-    margin-top: 8px;
-}
-
-/* 3. Paneller & Glassmorphism */
-.glass-panel {
-    background: rgba(255, 253, 248, 0.82) !important;
-    backdrop-filter: blur(6px) !important;
-    -webkit-backdrop-filter: blur(6px) !important;
-    border: 1px solid rgba(180, 170, 155, 0.5) !important;
-    border-radius: 12px !important;
-    box-shadow: 0 4px 16px rgba(70, 60, 50, 0.06), 0 1px 3px rgba(70, 60, 50, 0.04) !important;
-    padding: 22px !important;
-    position: relative;
-    z-index: 1;
-    transition: all 0.25s ease;
-}
-
-.glass-panel:hover {
-    box-shadow: 0 6px 20px rgba(70, 60, 50, 0.09) !important;
-}
-
-/* 4. Arama Çubuğu & Input Alanları */
-.glass-input input, .glass-input textarea {
-    background: rgba(255, 253, 248, 0.85) !important;
-    backdrop-filter: blur(4px) !important;
-    -webkit-backdrop-filter: blur(4px) !important;
-    border: 1px solid rgba(135, 130, 120, 0.55) !important;
-    border-radius: 8px !important;
-    box-shadow: inset 1px 1px 4px rgba(70, 60, 50, 0.08) !important;
-    color: #3b3b3b !important;
-    font-family: 'Lora', Georgia, serif !important;
-    font-size: 0.98rem !important;
-    padding: 12px 16px !important;
-    transition: all 0.2s ease !important;
-}
-
-.glass-input input:focus, .glass-input textarea:focus {
-    border-color: #2c3e50 !important;
-    box-shadow: 0 0 0 3px rgba(44, 62, 80, 0.12), inset 1px 1px 3px rgba(70, 60, 50, 0.06) !important;
-    outline: none !important;
-}
-
-/* 5. Butonlar (Dolma Kalem Laciverti & Zarif Kağıt) */
-.btn-primary {
-    background: #2c3e50 !important;
-    color: #fbf9f5 !important;
-    border: 1px solid #1a252f !important;
-    border-radius: 8px !important;
-    font-family: 'Playfair Display', Georgia, serif !important;
-    font-weight: 700 !important;
-    font-size: 0.98rem !important;
-    padding: 11px 22px !important;
-    box-shadow: 2px 3px 8px rgba(44, 62, 80, 0.22) !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-}
-
-.btn-primary:hover {
-    background: #1b2836 !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 3px 5px 12px rgba(44, 62, 80, 0.3) !important;
-}
-
-.btn-primary:active {
-    transform: translateY(1px) !important;
-    box-shadow: inset 1px 1px 4px rgba(0, 0, 0, 0.3) !important;
-}
-
-.btn-secondary {
-    background: rgba(255, 253, 248, 0.9) !important;
-    color: #2c3e50 !important;
-    border: 1px solid rgba(44, 62, 80, 0.45) !important;
-    border-radius: 8px !important;
-    font-family: 'Playfair Display', Georgia, serif !important;
-    font-weight: 600 !important;
-    font-size: 0.95rem !important;
-    padding: 10px 18px !important;
-    box-shadow: 1px 2px 6px rgba(70, 60, 50, 0.08) !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-}
-
-.btn-secondary:hover {
-    background: #fdfbf7 !important;
-    border-color: #2c3e50 !important;
-    transform: translateY(-1px) !important;
-}
-
-/* 6. Sonuç Kartları (Kağıt + Glassmorphism + Kesikli Kenarlar + Kalın Sol Kenar) */
-.results-container {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    margin-top: 10px;
-}
-
-.result-card {
-    background: rgba(255, 253, 248, 0.85) !important;
-    backdrop-filter: blur(4px) !important;
-    -webkit-backdrop-filter: blur(4px) !important;
-    border-top: 1px dashed rgba(160, 150, 135, 0.55) !important;
-    border-right: 1px dashed rgba(160, 150, 135, 0.55) !important;
-    border-bottom: 1px dashed rgba(160, 150, 135, 0.55) !important;
-    border-left: 5px solid #2c3e50 !important;
-    border-radius: 4px 10px 10px 4px !important;
-    padding: 16px 20px !important;
-    box-shadow: 2px 4px 12px rgba(70, 60, 50, 0.05) !important;
-    transition: all 0.25s ease !important;
-    cursor: pointer !important;
-}
-
-.result-card:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 3px 6px 16px rgba(70, 60, 50, 0.12) !important;
-    background: rgba(255, 254, 250, 0.95) !important;
-    border-color: rgba(44, 62, 80, 0.35) !important;
-}
-
-.result-card.active-result-card {
-    border-left: 6px solid #1a252f !important;
-    border-top: 1.5px solid rgba(44, 62, 80, 0.75) !important;
-    border-right: 1.5px solid rgba(44, 62, 80, 0.75) !important;
-    border-bottom: 1.5px solid rgba(44, 62, 80, 0.75) !important;
-    background: rgba(255, 253, 248, 0.98) !important;
-    box-shadow: 0 6px 22px rgba(44, 62, 80, 0.16) !important;
-}
-
-.btn-jump-page {
-    background: rgba(44, 62, 80, 0.08);
-    color: #2c3e50;
-    border: 1px solid rgba(44, 62, 80, 0.25);
-    padding: 3px 10px;
-    border-radius: 12px;
-    font-family: 'Lora', Georgia, serif;
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: auto;
-}
-
-.btn-jump-page:hover {
-    background: #2c3e50;
-    color: #fff;
-    border-color: #2c3e50;
-    box-shadow: 0 2px 6px rgba(44, 62, 80, 0.25);
-}
-
-.result-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-}
-
-.badges-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-/* 7. Vurgular ve Etiketler (Soluk Mürekkep Mavisi & Eskimiş Kağıt Sarısı) */
-.badge-index {
-    background: #2c3e50 !important;
-    color: #fbf9f5 !important;
-    font-family: 'Lora', Georgia, serif !important;
-    font-size: 0.75rem !important;
-    font-weight: 700 !important;
-    padding: 4px 9px !important;
-    border-radius: 4px !important;
-    border: 1px solid #1a252f !important;
-}
-
-.badge-file {
-    background: rgba(246, 238, 220, 0.95) !important;
-    color: #42382c !important;
-    border: 1px solid rgba(185, 168, 140, 0.65) !important;
-    font-family: 'Lora', Georgia, serif !important;
-    font-size: 0.8rem !important;
-    font-weight: 600 !important;
-    padding: 4px 10px !important;
-    border-radius: 4px !important;
-}
-
-.badge-page {
-    background: rgba(226, 236, 244, 0.9) !important;
-    color: #1e3a5f !important;
-    border: 1px solid rgba(145, 175, 205, 0.65) !important;
-    font-family: 'Lora', Georgia, serif !important;
-    font-size: 0.8rem !important;
-    font-weight: 600 !important;
-    padding: 4px 10px !important;
-    border-radius: 4px !important;
-}
-
-.result-snippet {
-    position: relative;
-    padding-left: 14px;
-}
-
-.quote-bar {
-    position: absolute;
-    left: 0;
-    top: 2px;
-    bottom: 2px;
-    width: 3px;
-    border-radius: 2px;
-    background: rgba(44, 62, 80, 0.6) !important;
-}
-
-.snippet-text {
-    font-family: 'Lora', Georgia, serif !important;
-    font-size: 0.94rem !important;
-    line-height: 1.65 !important;
-    color: #3b3b3b !important;
-    margin: 0;
-}
-
-/* 8. Kurumuş Fosforlu Kalem Sarısı Metin Vurgulama */
-mark, .result-snippet mark {
-    background-color: rgba(255, 235, 59, 0.4) !important;
-    color: #2c3e50 !important;
-    padding: 1px 4px !important;
-    border-radius: 2px !important;
-    font-weight: 600 !important;
-    border-bottom: 1px dashed rgba(200, 170, 40, 0.6) !important;
-}
-
-/* 9. Galeri ve Boş Durumlar */
-.empty-state {
-    text-align: center;
-    padding: 32px 18px;
-    background: rgba(255, 253, 248, 0.5) !important;
-    border: 1px dashed rgba(160, 150, 135, 0.6) !important;
-    border-radius: 8px;
-}
-
-.empty-icon {
-    font-size: 2rem;
-    margin-bottom: 6px;
-    opacity: 0.75;
-}
-
-.empty-text {
-    color: #5c5c5c !important;
-    font-family: 'Lora', Georgia, serif !important;
-    font-style: italic;
-    font-size: 0.92rem;
-    margin: 0;
-}
-
-.glass-gallery {
-    background: transparent !important;
-    border: none !important;
-}
-
-.glass-gallery .gallery-item {
-    background: rgba(255, 253, 248, 0.85) !important;
-    border: 1px solid rgba(180, 170, 155, 0.5) !important;
-    border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(70, 60, 50, 0.06) !important;
-    overflow: hidden !important;
-}
-
-/* Standart Gradio Çerçevelerini Temizleme & Özel Scrollbar */
-.gradio-container .block {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
-.scrollable-panel {
-    max-height: 75vh;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    display: flex !important;
-    flex-direction: column !important;
-    flex-wrap: nowrap !important;
-}
-
-.scrollable-panel > * {
-    flex-shrink: 0 !important;
-    width: 100% !important;
-}
-
-.scrollable-panel::-webkit-scrollbar { width: 6px; }
-.scrollable-panel::-webkit-scrollbar-track { background: transparent; }
-.scrollable-panel::-webkit-scrollbar-thumb { background: rgba(44, 62, 80, 0.25); border-radius: 4px; }
-.scrollable-panel::-webkit-scrollbar-thumb:hover { background: rgba(44, 62, 80, 0.5); }
-"""
-
-CLIENT_SYNC_JS = """
-() => {
-    window.selectPdfResult = function(idx) {
-        // 1. Sol paneldeki kartları güncelle
-        document.querySelectorAll('.result-card').forEach((c, i) => {
-            if (i === idx) {
-                c.classList.add('active-result-card');
-            } else {
-                c.classList.remove('active-result-card');
-            }
-        });
-        // 2. Sağ paneldeki galeri küçük resmini (thumbnail) tıkla
-        const thumbs = document.querySelectorAll('.glass-gallery button.thumbnail-item');
-        if (thumbs && thumbs[idx]) {
-            thumbs[idx].click();
-            thumbs[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        }
-    };
-
-    // Global tıklama dinleyicisi (Event delegation)
-    if (!window._pdf_click_listener_bound) {
-        window._pdf_click_listener_bound = true;
-        document.addEventListener('click', function(e) {
-            const card = e.target.closest('.result-card');
-            if (card) {
-                const idxAttr = card.getAttribute('data-index');
-                if (idxAttr !== null) {
-                    const idx = parseInt(idxAttr, 10);
-                    if (!isNaN(idx)) {
-                        window.selectPdfResult(idx);
-                    }
-                }
-            }
-        });
-    }
-
-    // İlk kartı otomatik seç
-    setTimeout(() => {
-        const first = document.querySelector('.result-card');
-        if (first && !document.querySelector('.active-result-card')) {
-            first.classList.add('active-result-card');
-        }
-    }, 200);
-}
-"""
-
-# --- HERO BAŞLIK HTML ---
-AMBIENT_BG_HTML = """
-<div class="hero-header">
-    <div class="hero-pill">
-        <span>📜</span> Semantik Doküman Kütüphanesi
+TOP_APP_BAR_HTML = """
+<div id="top-app-bar">
+    <div class="top-bar-inner">
+        <div class="brand-section">
+            <div class="brand-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+            </div>
+            <div>
+                <h1 class="brand-title">Akıllı PDF Arama & Görsel Keşif</h1>
+                <p class="brand-subtitle">Anlamsal arama ve orijinal sayfa önizleme platformu</p>
+            </div>
+        </div>
     </div>
-    <h1 class="hero-title">Akıllı PDF Arama & Görsel Keşif</h1>
-    <p class="hero-subtitle">Yapay zeka ile PDF sayfalarınızda anlamsal araştırma yapın ve orijinal metinleri keşfedin.</p>
+</div>
+"""
+
+FOOTER_HTML = """
+<div id="app-footer">
+    <p>© 2026 Akıllı PDF Arama Platformu</p>
 </div>
 """
 
 # --- GRADIO ARAYÜZÜ ---
-with gr.Blocks(title="Source Finder - PDF Arama ve Kaynakça Bulucu") as demo:
-    # Arka plan küreleri ve Hero Başlık
-    gr.HTML(AMBIENT_BG_HTML, js_on_load=CLIENT_SYNC_JS)
+with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
+    # 1. Üst Başlık Çubuğu
+    gr.HTML(TOP_APP_BAR_HTML)
 
-    with gr.Column(elem_classes=["glass-panel"]):
-        gr.HTML('<div class="panel-title">📂 Veri Seti Yönetimi</div>')
+    # 2. Belge Kütüphanesi Akordiyonu (Varsayılan olarak kapalı)
+    with gr.Accordion("Belge Kütüphanesi", open=False, elem_id="library-accordion"):
         with gr.Row():
-            index_btn = gr.Button("🔄 Belgeleri İndeksle", elem_classes=["btn-secondary", "btn-primary"], variant="primary")
+            index_btn = gr.Button("Belgeleri İndeksle", elem_id="index-button", scale=1)
             index_output = gr.Textbox(
                 label="İndeksleme Durumu",
                 value=init_message,
                 interactive=False,
-                elem_classes=["glass-input"],
+                elem_id="index-status",
+                scale=3,
                 lines=1
             )
 
-        gr.HTML('<div class="panel-title" style="margin-top: 16px;">🔍 Akıllı Semantik Arama</div>')
-        with gr.Row():
-            search_input = gr.Textbox(
-                label="",
-                placeholder="Örn: Türk bayrağı kanunu nedir veya Cumhuriyet nasıl ilan edildi?",
-                scale=4,
-                elem_classes=["glass-input"],
-                container=False
-            )
-            search_btn = gr.Button("Ara ⚡", scale=1, elem_classes=["btn-primary"], variant="primary")
+    # 3. İki Sütunlu Ana Alan
+    with gr.Row(elem_classes=["main-grid-row"]):
+        # Sol Panel: Arama ve Metin Kesitleri
+        with gr.Column(scale=1, elem_id="search-panel", elem_classes=["saas-card", "scrollable-panel"]):
+            gr.HTML("""
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <span>Akıllı Semantik Arama</span>
+                </div>
+            </div>
+            """)
+            with gr.Row(elem_id="search-bar-row"):
+                search_input = gr.Textbox(
+                    label="",
+                    placeholder="PDF belgelerinde ara...",
+                    scale=4,
+                    elem_id="search-input",
+                    container=False
+                )
+                search_btn = gr.Button("Ara", scale=1, elem_id="search-button")
 
-    with gr.Row():
-        with gr.Column(scale=1, elem_classes=["glass-panel", "scrollable-panel"]):
-            gr.HTML('<div class="panel-title">📑 Metin Kesitleri</div>')
+            gr.HTML("""
+            <div class="panel-sub-header" id="results-header">
+                <div class="panel-sub-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    <span>Metin Kesitleri</span>
+                </div>
+            </div>
+            """)
             search_output = gr.HTML(
                 value="""
                 <div class="empty-state">
-                    <div class="empty-icon">🔎</div>
-                    <p class="empty-text">Aramak istediğiniz soruyu yukarıya yazıp 'Ara' butonuna basın.</p>
+                    <div class="empty-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    </div>
+                    <p class="empty-text">Aramak istediğiniz konuyu veya soruyu yukarıdaki kutucuğa yazıp <strong>'Ara'</strong> butonuna basın.</p>
                 </div>
                 """,
-                js_on_load=CLIENT_SYNC_JS
+                elem_id="search-results"
             )
-        with gr.Column(scale=1, elem_classes=["glass-panel", "scrollable-panel"]):
-            gr.HTML('<div class="panel-title">🖼️ Orijinal Sayfa Önizlemeleri</div>')
+
+        # Sağ Panel: Orijinal Sayfa Önizlemeleri
+        with gr.Column(scale=1, elem_id="preview-panel", elem_classes=["saas-card", "scrollable-panel"]):
+            gr.HTML("""
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                    <span>Orijinal Sayfa Önizlemeleri</span>
+                </div>
+            </div>
+            """)
             gallery_output = gr.Gallery(
                 label="Orijinal PDF Sayfaları",
                 show_label=False,
-                elem_classes=["glass-gallery"],
+                elem_id="pdf-preview-gallery",
                 columns=[1],
                 rows=[1],
                 object_fit="contain",
                 height="auto"
             )
 
+    # 4. Alt Bilgi (Footer)
+    gr.HTML(FOOTER_HTML)
+
     # Olay Bağlantıları (Event Listeners)
     index_btn.click(fn=index_documents, inputs=[], outputs=[index_output])
-
-    # Arama tetikleyicileri
     search_btn.click(fn=search, inputs=[search_input], outputs=[search_output, gallery_output])
     search_input.submit(fn=search, inputs=[search_input], outputs=[search_output, gallery_output])
 
-    # İstemci tarafı senkronizasyon betiği
-    demo.load(js=CLIENT_SYNC_JS)
+    # İstemci tarafı senkronizasyon betiği - Tek noktadan
+    demo.load(js=PHASE3_JS)
 
 if __name__ == "__main__":
-    demo.launch(server_name="127.0.0.1", inbrowser=True, css=CUSTOM_CSS, theme=gr.themes.Base())
+    demo.launch(server_name="127.0.0.1", inbrowser=True, css=PHASE3_CSS, theme=gr.themes.Base())
