@@ -15,6 +15,7 @@ from langchain_core.documents import Document
 import pickle
 import urllib.parse
 import time
+import shutil
 from rank_bm25 import BM25Okapi
 from TurkishStemmer import TurkishStemmer
 from sentence_transformers import CrossEncoder
@@ -24,6 +25,8 @@ DATA_DIR = "data"
 CHROMA_PERSIST_DIR = "chroma_db"
 BM25_PERSIST_FILE = "bm25_index.pkl"
 TEMP_IMAGE_DIR = "temp_images"
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+last_index_time = None
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 import torch
@@ -228,6 +231,112 @@ def init_vector_store():
     else:
         return "ℹ️ Henüz indekslenmiş veri yok. Lütfen 'Verileri İndeksle' butonuna basınız."
 
+def sanitize_filename(filename):
+    """Zararlı karakterleri ve path traversal girişimlerini temizler."""
+    if not filename:
+        return "belge.pdf"
+    clean_name = os.path.basename(str(filename)).strip()
+    clean_name = clean_name.replace("\\", "_").replace("/", "_").replace("\0", "")
+    clean_name = re.sub(r'[\r\n\t]', '', clean_name)
+    if not clean_name.lower().endswith(".pdf"):
+        clean_name += ".pdf"
+    return clean_name
+
+def get_library_stats():
+    """data/ klasöründeki dosya sayısı, sistem sağlık durumu ve son güncelleme bilgisini döner."""
+    pdf_count = 0
+    if os.path.exists(DATA_DIR):
+        pdf_count = len([f for f in os.listdir(DATA_DIR) if f.lower().endswith(".pdf")])
+
+    is_healthy = (vector_store is not None and bm25_index is not None)
+    status_str = "Sağlıklı" if is_healthy else "İndeks Bekliyor"
+
+    global last_index_time
+    check_time = last_index_time
+    if check_time is None and os.path.exists(BM25_PERSIST_FILE):
+        try:
+            check_time = os.path.getmtime(BM25_PERSIST_FILE)
+        except Exception:
+            check_time = None
+
+    if check_time is not None:
+        elapsed_sec = max(0, time.time() - check_time)
+        elapsed_min = int(elapsed_sec / 60)
+        if elapsed_min < 1:
+            time_str = "Az önce"
+        elif elapsed_min < 60:
+            time_str = f"{elapsed_min} dakika önce"
+        else:
+            hours = elapsed_min // 60
+            if hours < 24:
+                time_str = f"{hours} saat önce"
+            else:
+                days = hours // 24
+                time_str = f"{days} gün önce"
+    else:
+        time_str = "Henüz yapılmadı"
+
+    return {
+        "pdf_count": pdf_count,
+        "status": status_str,
+        "is_healthy": is_healthy,
+        "last_updated": time_str
+    }
+
+def handle_pdf_upload(files):
+    """Yüklenen PDF dosyalarını doğrular ve data/ klasörüne kopyalar.
+    Gradio file_upload bileşenini otomatik sıfırlamak için (None, mesaj) demeti döndürür.
+    """
+    if not files:
+        return None, "Dosya seçilmedi."
+
+    if not isinstance(files, list):
+        files = [files]
+
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
+
+    saved_files = []
+    rejected_files = []
+
+    for f in files:
+        temp_path = getattr(f, 'name', str(f))
+        orig_name = getattr(f, 'orig_name', None) or os.path.basename(temp_path)
+
+        if not orig_name.lower().endswith(".pdf"):
+            rejected_files.append(f"{orig_name} (Yalnızca PDF kabul edilir)")
+            continue
+
+        try:
+            file_size = os.path.getsize(temp_path)
+            if file_size > MAX_FILE_SIZE_BYTES:
+                rejected_files.append(f"{orig_name} (50 MB sınırını aşıyor: {file_size / (1024*1024):.1f} MB)")
+                continue
+        except Exception as e:
+            rejected_files.append(f"{orig_name} (Boyut okunamadı: {e})")
+            continue
+
+        clean_name = sanitize_filename(orig_name)
+        dest_path = os.path.join(DATA_DIR, clean_name)
+        try:
+            shutil.copy2(temp_path, dest_path)
+            saved_files.append(clean_name)
+        except Exception as e:
+            rejected_files.append(f"{orig_name} (Kayıt hatası: {e})")
+
+    msg_parts = []
+    if saved_files:
+        count = len(saved_files)
+        preview_names = ", ".join(saved_files[:3])
+        if count > 3:
+            preview_names += f" ve {count - 3} diğer dosya"
+        msg_parts.append(f"📁 {count} yeni PDF 'data/' klasörüne yüklendi ({preview_names}). Arama motoruna dahil etmek için 'Belgeleri İndeksle' butonuna basınız.")
+    if rejected_files:
+        msg_parts.append(f"⚠️ Reddedilenler: {'; '.join(rejected_files)}.")
+
+    final_msg = " ".join(msg_parts) if msg_parts else "Dosya işlenemedi."
+    return None, final_msg
+
 def index_documents():
     """data/ klasöründeki tüm PDF'leri okur, parçalar ve ChromaDB'ye indeksler."""
     global vector_store, bm25_index, bm25_documents
@@ -414,6 +523,8 @@ def index_documents():
     if errors > 0:
         return f"⚠️ Bazı dosyalar işlenemedi! Eklenen: {added}, Güncellenen: {updated}, Silinen: {deleted}, Atlanan: {skipped}, Hatalı: {errors}."
 
+    global last_index_time
+    last_index_time = time.time()
     return f"✅ Başarılı! Eklenen: {added}, Güncellenen: {updated}, Silinen: {deleted}, Atlanan: {skipped}, Hatalı: {errors}."
 
 def cleanup_temp_images(max_age_hours=24, max_files=200):
@@ -890,6 +1001,7 @@ MODAL_VIEWER_HTML = """
 # Başlangıç durumu ve geçici dosya temizliği
 cleanup_temp_images()
 init_message = init_vector_store()
+lib_stats = get_library_stats()
 
 BASE_DIR = Path(__file__).resolve().parent
 PHASE3_CSS = (BASE_DIR / "static" / "phase3.css").read_text(encoding="utf-8")
@@ -899,16 +1011,21 @@ PHASE3_JS = (BASE_DIR / "static" / "phase3.js").read_text(encoding="utf-8")
 with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
     # 1. Bütünleşik Belge Kütüphanesi ve Operasyon Kabuğu
     with gr.Accordion("Belge Kütüphanesi", open=False, elem_id="library-accordion"):
+        gr.HTML(
+            f'<div id="library-stats-meta" style="display:none;" data-doc-count="{lib_stats["pdf_count"]}" data-health="{lib_stats["status"]}" data-is-healthy="{str(lib_stats["is_healthy"]).lower()}" data-time="{lib_stats["last_updated"]}"></div>',
+            elem_id="library-stats-meta-container"
+        )
         with gr.Row(elem_id="accordion-content-row"):
+            with gr.Column(scale=1, elem_id="upload-col"):
+                file_upload = gr.File(
+                    file_count="multiple",
+                    file_types=[".pdf"],
+                    elem_id="pdf-upload-zone",
+                    label="",
+                    container=False
+                )
             with gr.Column(scale=1, elem_id="index-action-col"):
-                gr.HTML("""
-                <div class="index-action-panel">
-                    <p class="index-action-title">Doküman Veri Havuzu</p>
-                    <p class="index-action-desc">Klasördeki tüm PDF dokümanları OCR, semantik vektörleştirme ve BM25 hibrit arama motoruna senkronize edilir.</p>
-                </div>
-                """)
                 index_btn = gr.Button("Belgeleri İndeksle", elem_id="index-button")
-            with gr.Column(scale=1, elem_id="index-status-col"):
                 gr.HTML("""
                 <div class="index-status-header">
                     <span class="index-status-label">İNDEKSLEME DURUMU</span>
@@ -986,6 +1103,7 @@ with gr.Blocks(title="Akıllı PDF Arama & Görsel Keşif") as demo:
     gr.HTML(MODAL_VIEWER_HTML)
 
     # Olay Bağlantıları (Event Listeners)
+    file_upload.upload(fn=handle_pdf_upload, inputs=[file_upload], outputs=[file_upload, index_output])
     index_btn.click(fn=index_documents, inputs=[], outputs=[index_output])
     search_btn.click(fn=search, inputs=[search_input], outputs=[search_output, preview_output])
     search_input.submit(fn=search, inputs=[search_input], outputs=[search_output, preview_output])

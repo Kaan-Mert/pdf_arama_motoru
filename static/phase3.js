@@ -89,6 +89,32 @@
             targetCard.classList.add('active-result-card');
         }
 
+        const selectedIdx = parseInt(targetCard.getAttribute('data-index') || '0', 10);
+        const parentDetails = targetCard.closest('details');
+        if (parentDetails && !parentDetails.open) {
+            parentDetails.open = true;
+        }
+
+        const thumbnails = document.querySelectorAll('#preview-thumbnail-strip .preview-thumbnail');
+        thumbnails.forEach((thumbnail) => {
+            const thumbnailIdx = parseInt(thumbnail.getAttribute('data-result-index') || '-1', 10);
+            const isSelected = thumbnailIdx === selectedIdx;
+            const wasSelected = thumbnail.classList.contains('is-active');
+            thumbnail.classList.toggle('is-active', isSelected);
+            if (isSelected) {
+                thumbnail.setAttribute('aria-current', 'true');
+                if (!wasSelected) {
+                    thumbnail.scrollIntoView({
+                        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                        block: 'nearest',
+                        inline: 'nearest'
+                    });
+                }
+            } else {
+                thumbnail.removeAttribute('aria-current');
+            }
+        });
+
         const fullUrl = targetCard.getAttribute('data-full-url') || '';
         const fileName = targetCard.getAttribute('data-file-name') || 'Belge';
         const pageNum = targetCard.getAttribute('data-page-num') || '1';
@@ -361,6 +387,17 @@
 
     // --- 5. EVENT DELEGATION & RESIZE OBSERVER (SINGLETON) ---
     document.addEventListener('click', function(e) {
+        const thumbnail = e.target.closest('#preview-thumbnail-strip .preview-thumbnail');
+        if (thumbnail) {
+            e.preventDefault();
+            e.stopPropagation();
+            const thumbnailIdx = parseInt(thumbnail.getAttribute('data-result-index') || '-1', 10);
+            if (!isNaN(thumbnailIdx) && thumbnailIdx >= 0) {
+                window.selectPdfResult(thumbnailIdx);
+            }
+            return;
+        }
+
         // Result card click (delegated exclusively under #search-results)
         const card = e.target.closest('#search-results .result-card');
         if (card) {
@@ -418,15 +455,15 @@
         updateResultCount();
     }
 
-    // --- 7. UNIFIED ACCORDION HEADER ENHANCEMENT ---
+    // --- 7. UNIFIED ACCORDION HEADER & CONTENT ENHANCEMENT ---
     function initAccordionHeader() {
-        function enhance() {
+        function enhanceHeader() {
             const acc = document.getElementById('library-accordion');
             if (!acc) return false;
             const labelWrap = acc.querySelector('.label-wrap');
             if (!labelWrap) return false;
 
-            // Check if brandContainer already exists
+            // 1. Check if brandContainer already exists
             let brandContainer = labelWrap.querySelector('.accordion-brand-container');
             if (!brandContainer) {
                 brandContainer = document.createElement('div');
@@ -445,11 +482,12 @@
                 labelWrap.insertBefore(brandContainer, labelWrap.firstChild);
             }
 
-            // Hide only the default title text span, preserve .icon / svg chevron
+            // 2. Hide only the default title text span, preserve .icon / svg chevron
             const spans = labelWrap.querySelectorAll('span');
             spans.forEach(s => {
                 if (
                     !s.closest('.accordion-brand-container') &&
+                    !s.closest('.accordion-badges-group') &&
                     !s.classList.contains('icon') &&
                     !s.querySelector('svg')
                 ) {
@@ -457,7 +495,7 @@
                 }
             });
 
-            // Ensure the chevron .icon is visible and positioned at the far right
+            // 3. Ensure the chevron .icon is visible and positioned at the far right
             let iconEl = labelWrap.querySelector('.icon');
             if (iconEl) {
                 iconEl.style.display = 'inline-flex';
@@ -476,17 +514,177 @@
                 labelWrap.appendChild(iconEl);
             }
 
+            // 4. Inject or update minimalist badges group
+            let badgesGroup = labelWrap.querySelector('.accordion-badges-group');
+            if (!badgesGroup) {
+                badgesGroup = document.createElement('div');
+                badgesGroup.className = 'accordion-badges-group';
+
+                const metaEl = document.getElementById('library-stats-meta');
+                const docCount = metaEl ? (metaEl.getAttribute('data-doc-count') || '0') : '0';
+                const health = metaEl ? (metaEl.getAttribute('data-health') || 'Sağlıklı') : 'Sağlıklı';
+                const timeStr = metaEl ? (metaEl.getAttribute('data-time') || 'Az önce') : 'Az önce';
+
+                badgesGroup.innerHTML = `
+                    <span class="accordion-badge-pill accordion-badge-doc-count">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        <span class="badge-count-text">${docCount} Belge</span>
+                    </span>
+                    <span class="accordion-badge-pill accordion-badge-health">
+                        <span class="badge-dot-green">●</span>
+                        <span class="badge-health-text">${health}</span>
+                    </span>
+                    <span class="accordion-badge-pill accordion-badge-time">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        <span class="badge-time-text">Son Güncelleme: ${timeStr}</span>
+                    </span>
+                `;
+                labelWrap.insertBefore(badgesGroup, iconEl);
+            }
+
+            if (!labelWrap._accordion_click_bound) {
+                labelWrap._accordion_click_bound = true;
+                labelWrap.addEventListener('click', () => {
+                    setTimeout(enhanceContent, 50);
+                    setTimeout(enhanceContent, 200);
+                    setTimeout(enhanceContent, 500);
+                });
+            }
+
             return true;
         }
 
-        if (!enhance()) {
-            let attempts = 0;
-            const timer = setInterval(() => {
-                attempts++;
-                if (enhance() || attempts > 20) {
-                    clearInterval(timer);
+        function enhanceContent() {
+            let allDone = true;
+
+            // 5. Enhance #pdf-upload-zone with custom visual overlay
+            const uploadZone = document.getElementById('pdf-upload-zone');
+            if (uploadZone) {
+                if (!uploadZone.querySelector('.custom-drop-overlay')) {
+                    const overlay = document.createElement('div');
+                    overlay.className = 'custom-drop-overlay';
+                    overlay.innerHTML = `
+                        <div class="upload-icon-circle">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+                                <path d="M12 12v9"></path>
+                                <path d="m16 16-4-4-4 4"></path>
+                            </svg>
+                        </div>
+                        <div class="upload-title">PDF Dosyalarını Buraya Sürükleyin</div>
+                        <div class="upload-subtitle">veya bilgisayarınızdan seçmek için tıklayın</div>
+                        <div class="upload-meta-pills">
+                            <span class="upload-pill-badge">Maks. 50 MB • Yalnızca PDF</span>
+                            <span class="upload-pill-badge upload-pill-action">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                                Dosya Seç
+                            </span>
+                        </div>
+                    `;
+                    uploadZone.appendChild(overlay);
+
+                    ['dragenter', 'dragover'].forEach(eventName => {
+                        uploadZone.addEventListener(eventName, () => uploadZone.classList.add('dragover'), false);
+                    });
+                    ['dragleave', 'drop'].forEach(eventName => {
+                        uploadZone.addEventListener(eventName, () => uploadZone.classList.remove('dragover'), false);
+                    });
                 }
-            }, 100);
+            } else {
+                allDone = false;
+            }
+
+            // 6. Enhance #index-button with orange sync icon
+            const idxBtn = document.getElementById('index-button');
+            if (idxBtn) {
+                if (!idxBtn.querySelector('.index-btn-icon')) {
+                    const targetBtn = idxBtn.querySelector('button') || idxBtn;
+                    const iconSpan = document.createElement('span');
+                    iconSpan.className = 'index-btn-icon';
+                    iconSpan.style.display = 'inline-flex';
+                    iconSpan.style.alignItems = 'center';
+                    iconSpan.style.marginRight = '8px';
+                    iconSpan.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>`;
+                    targetBtn.insertBefore(iconSpan, targetBtn.firstChild);
+                }
+            } else {
+                allDone = false;
+            }
+
+            // 7. Dynamic reactive badge updating from #index-status
+            const statusBox = document.getElementById('index-status');
+            if (statusBox && !statusBox._observer_bound) {
+                statusBox._observer_bound = true;
+                const updateBadgesFromStatus = () => {
+                    const textarea = statusBox.querySelector('textarea') || statusBox.querySelector('input');
+                    const text = textarea ? textarea.value : statusBox.innerText;
+                    if (!text) return;
+
+                    const countEl = document.querySelector('.badge-count-text');
+                    const healthEl = document.querySelector('.badge-health-text');
+                    const timeEl = document.querySelector('.badge-time-text');
+
+                    const indexMatch = text.match(/Eklenen:\s*(\d+).*?Güncellenen:\s*(\d+).*?Atlanan:\s*(\d+)/i);
+                    if (indexMatch) {
+                        const added = parseInt(indexMatch[1], 10) || 0;
+                        const updated = parseInt(indexMatch[2], 10) || 0;
+                        const skipped = parseInt(indexMatch[3], 10) || 0;
+                        const total = added + updated + skipped;
+                        if (countEl && total > 0) {
+                            countEl.textContent = `${total} Belge`;
+                        }
+                        if (healthEl) {
+                            healthEl.textContent = 'Sağlıklı';
+                        }
+                        if (timeEl) {
+                            timeEl.textContent = 'Son Güncelleme: Az önce';
+                        }
+                    }
+
+                    const uploadMatch = text.match(/(\d+)\s*yeni PDF/i);
+                    if (uploadMatch && countEl) {
+                        const addedUploads = parseInt(uploadMatch[1], 10) || 0;
+                        const currentCount = parseInt(countEl.textContent, 10) || 0;
+                        countEl.textContent = `${currentCount + addedUploads} Belge`;
+                    }
+                };
+
+                const obs = new MutationObserver(updateBadgesFromStatus);
+                obs.observe(statusBox, { childList: true, subtree: true, characterData: true });
+                const textarea = statusBox.querySelector('textarea') || statusBox.querySelector('input');
+                if (textarea) {
+                    textarea.addEventListener('input', updateBadgesFromStatus);
+                    textarea.addEventListener('change', updateBadgesFromStatus);
+                }
+            } else if (!statusBox) {
+                allDone = false;
+            }
+
+            return allDone;
+        }
+
+        // Run on load and poll briefly for full mount
+        enhanceHeader();
+        enhanceContent();
+
+        let attempts = 0;
+        const timer = setInterval(() => {
+            attempts++;
+            enhanceHeader();
+            const done = enhanceContent();
+            if ((done && attempts > 5) || attempts > 35) {
+                clearInterval(timer);
+            }
+        }, 150);
+
+        // Also observe library-accordion subtree
+        const acc = document.getElementById('library-accordion');
+        if (acc) {
+            const accObserver = new MutationObserver(() => {
+                enhanceHeader();
+                enhanceContent();
+            });
+            accObserver.observe(acc, { childList: true, subtree: true });
         }
     }
 
